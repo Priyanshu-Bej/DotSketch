@@ -5,7 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
-enum DotStyle { dots, ascii }
+import 'ui/image_preview.dart';
+import 'ui/modern_app_bar.dart';
+import 'ui/modern_card.dart';
+import 'ui/modern_dropdown.dart';
+import 'ui/modern_slider.dart';
+import 'ui/theme.dart';
+
+enum DotStyle { dots, ascii, outline }
 
 Future<String> imageToDottedText(
   File imageFile, {
@@ -25,8 +32,8 @@ Future<String> imageToDottedText(
   if (byteData == null) return '';
   final buffer = byteData.buffer.asUint8List();
   StringBuffer sb = StringBuffer();
-  // ASCII ramp from dark to light
-  const asciiRamp = '@%#*+=-:. ';
+  // Denser ASCII ramp for more detail
+  const asciiRamp = '@#W\$9876543210?!abc;:+=-,._ ';
   for (int y = 0; y < img.height; y++) {
     for (int x = 0; x < img.width; x++) {
       int i = (y * img.width + x) * 4;
@@ -52,18 +59,19 @@ Future<String> imageToDottedText(
 }
 
 void main() {
-  runApp(const MyApp());
+  runApp(const DotSketchApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class DotSketchApp extends StatelessWidget {
+  const DotSketchApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'DotSketch',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: DotSketchTheme.lightTheme,
       home: const DotSketchHome(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -76,6 +84,15 @@ class DotSketchHome extends StatefulWidget {
 }
 
 class _DotSketchHomeState extends State<DotSketchHome> {
+  void _copyText() {
+    if (_dottedText.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: _dottedText));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Copied to clipboard!')));
+    }
+  }
+
   DotStyle _selectedStyle = DotStyle.ascii;
   double _outputWidth = 40;
 
@@ -103,107 +120,126 @@ class _DotSketchHomeState extends State<DotSketchHome> {
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _pickImage() async {
-    final XFile? pickedFile = await _picker.pickImage(
-      source: ImageSource.gallery,
-    );
+    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() {
         _image = File(pickedFile.path);
         _dottedText = '';
       });
-      // TODO: Process image to dotted text
-    }
-  }
-
-  void _copyText() {
-    if (_dottedText.isNotEmpty) {
-      Clipboard.setData(ClipboardData(text: _dottedText));
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Copied to clipboard!')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('DotSketch')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ElevatedButton(
-              onPressed: _pickImage,
-              child: const Text('Choose Image'),
-            ),
-            const SizedBox(height: 16),
-            if (_image != null)
-              Column(
-                children: [
-                  Image.file(_image!, height: 200),
-                  const SizedBox(height: 16),
-                ],
-              ),
-            if (_image != null) ...[
-              Row(
-                children: [
-                  const Text('Style:'),
-                  const SizedBox(width: 8),
-                  DropdownButton<DotStyle>(
-                    value: _selectedStyle,
-                    items: const [
-                      DropdownMenuItem(
-                        value: DotStyle.dots,
-                        child: Text('Dots Only'),
+      appBar: const ModernAppBar(title: 'DotSketch'),
+      body: Center(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ModernCard(
+                  child: Column(
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: _pickImage,
+                        icon: const Icon(Icons.image_outlined),
+                        label: const Text('Choose Image'),
                       ),
-                      DropdownMenuItem(
-                        value: DotStyle.ascii,
-                        child: Text('ASCII Art'),
-                      ),
+                      if (_image != null) ...[
+                        const SizedBox(height: 16),
+                        ImagePreview(image: _image!),
+                      ],
                     ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _selectedStyle = v);
-                    },
                   ),
-                  const SizedBox(width: 16),
-                  const Text('Width:'),
-                  Expanded(
-                    child: Slider(
-                      min: 20,
-                      max: 100,
-                      divisions: 8,
-                      value: _outputWidth,
-                      label: _outputWidth.round().toString(),
-                      onChanged: (v) => setState(() => _outputWidth = v),
+                ),
+                if (_image != null) ...[
+                  ModernCard(
+                    child: Column(
+                      children: [
+                        ModernDropdown<DotStyle>(
+                          value: _selectedStyle,
+                          label: 'Style',
+                          items: const [
+                            DropdownMenuItem(
+                              value: DotStyle.dots,
+                              child: Text('Dots Only'),
+                            ),
+                            DropdownMenuItem(
+                              value: DotStyle.ascii,
+                              child: Text('ASCII Art'),
+                            ),
+                            DropdownMenuItem(
+                              value: DotStyle.outline,
+                              child: Text('Outline Only'),
+                            ),
+                          ],
+                          onChanged: (v) {
+                            if (v != null) setState(() => _selectedStyle = v);
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        ModernSlider(
+                          value: _outputWidth,
+                          min: 20,
+                          max: 100,
+                          divisions: 8,
+                          label: 'Width',
+                          onChanged: (v) => setState(() => _outputWidth = v),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _convertToDottedText,
+                          icon: const Icon(Icons.auto_awesome),
+                          label: const Text('Convert to Dotted Text'),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8.0),
-                child: ElevatedButton(
-                  onPressed: _convertToDottedText,
-                  child: const Text('Convert to Dotted Text'),
+                ModernCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'Output',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.all(12),
+                        child: SelectableText(
+                          _dottedText.isEmpty
+                              ? 'Dotted text will appear here.'
+                              : _dottedText,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: _dottedText.isNotEmpty ? _copyText : null,
+                        icon: const Icon(Icons.copy),
+                        label: const Text('Copy Dotted Text'),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
-            Expanded(
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  _dottedText.isEmpty
-                      ? 'Dotted text will appear here.'
-                      : _dottedText,
-                  style: const TextStyle(fontFamily: 'monospace'),
-                ),
-              ),
+              ],
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _dottedText.isNotEmpty ? _copyText : null,
-              child: const Text('Copy Dotted Text'),
-            ),
-          ],
+          ),
         ),
       ),
     );
