@@ -1,4 +1,55 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
+
+enum DotStyle { dots, ascii }
+
+Future<String> imageToDottedText(
+  File imageFile, {
+  int width = 40,
+  int height = 20,
+  DotStyle style = DotStyle.ascii,
+}) async {
+  final bytes = await imageFile.readAsBytes();
+  final codec = await ui.instantiateImageCodec(
+    bytes,
+    targetWidth: width,
+    targetHeight: height,
+  );
+  final frame = await codec.getNextFrame();
+  final img = frame.image;
+  final byteData = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
+  if (byteData == null) return '';
+  final buffer = byteData.buffer.asUint8List();
+  StringBuffer sb = StringBuffer();
+  // ASCII ramp from dark to light
+  const asciiRamp = '@%#*+=-:. ';
+  for (int y = 0; y < img.height; y++) {
+    for (int x = 0; x < img.width; x++) {
+      int i = (y * img.width + x) * 4;
+      int r = buffer[i];
+      int g = buffer[i + 1];
+      int b = buffer[i + 2];
+      int a = buffer[i + 3];
+      if (a < 128) {
+        sb.write(' ');
+        continue;
+      }
+      int gray = ((r + g + b) ~/ 3);
+      if (style == DotStyle.dots) {
+        sb.write(gray < 128 ? '.' : ' ');
+      } else {
+        int idx = ((gray / 255) * (asciiRamp.length - 1)).round();
+        sb.write(asciiRamp[idx]);
+      }
+    }
+    sb.writeln();
+  }
+  return sb.toString();
+}
 
 void main() {
   runApp(const MyApp());
@@ -7,116 +58,154 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: 'DotSketch',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const DotSketchHome(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class DotSketchHome extends StatefulWidget {
+  const DotSketchHome({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<DotSketchHome> createState() => _DotSketchHomeState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _DotSketchHomeState extends State<DotSketchHome> {
+  DotStyle _selectedStyle = DotStyle.ascii;
+  double _outputWidth = 40;
 
-  void _incrementCounter() {
+  Future<void> _convertToDottedText() async {
+    if (_image == null) return;
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _dottedText = 'Processing...';
     });
+    // Height is proportional to width for aspect ratio
+    int width = _outputWidth.round();
+    int height = (width / 2).round();
+    final result = await imageToDottedText(
+      _image!,
+      width: width,
+      height: height,
+      style: _selectedStyle,
+    );
+    setState(() {
+      _dottedText = result;
+    });
+  }
+
+  File? _image;
+  String _dottedText = '';
+  final ImagePicker _picker = ImagePicker();
+
+  Future<void> _pickImage() async {
+    final XFile? pickedFile = await _picker.pickImage(
+      source: ImageSource.gallery,
+    );
+    if (pickedFile != null) {
+      setState(() {
+        _image = File(pickedFile.path);
+        _dottedText = '';
+      });
+      // TODO: Process image to dotted text
+    }
+  }
+
+  void _copyText() {
+    if (_dottedText.isNotEmpty) {
+      Clipboard.setData(ClipboardData(text: _dottedText));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Copied to clipboard!')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
+      appBar: AppBar(title: const Text('DotSketch')),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ElevatedButton(
+              onPressed: _pickImage,
+              child: const Text('Choose Image'),
+            ),
+            const SizedBox(height: 16),
+            if (_image != null)
+              Column(
+                children: [
+                  Image.file(_image!, height: 200),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            if (_image != null) ...[
+              Row(
+                children: [
+                  const Text('Style:'),
+                  const SizedBox(width: 8),
+                  DropdownButton<DotStyle>(
+                    value: _selectedStyle,
+                    items: const [
+                      DropdownMenuItem(
+                        value: DotStyle.dots,
+                        child: Text('Dots Only'),
+                      ),
+                      DropdownMenuItem(
+                        value: DotStyle.ascii,
+                        child: Text('ASCII Art'),
+                      ),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _selectedStyle = v);
+                    },
+                  ),
+                  const SizedBox(width: 16),
+                  const Text('Width:'),
+                  Expanded(
+                    child: Slider(
+                      min: 20,
+                      max: 100,
+                      divisions: 8,
+                      value: _outputWidth,
+                      label: _outputWidth.round().toString(),
+                      onChanged: (v) => setState(() => _outputWidth = v),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: ElevatedButton(
+                  onPressed: _convertToDottedText,
+                  child: const Text('Convert to Dotted Text'),
+                ),
+              ),
+            ],
+            Expanded(
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  _dottedText.isEmpty
+                      ? 'Dotted text will appear here.'
+                      : _dottedText,
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _dottedText.isNotEmpty ? _copyText : null,
+              child: const Text('Copy Dotted Text'),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
