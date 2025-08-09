@@ -1,3 +1,7 @@
+// ...imports...
+
+// Character ramps for ASCII and Unicode art
+
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -12,13 +16,17 @@ import 'ui/modern_dropdown.dart';
 import 'ui/modern_slider.dart';
 import 'ui/theme.dart';
 
-enum DotStyle { dots, ascii, outline }
+// Character ramps for ASCII and Unicode art
+const asciiRamp = '@#W\$9876543210?!abc;:+=-,._ ';
+const unicodeRamp = ['⣿', '⣷', '⣯', '⣟', '⡿', '⢿', '⠿', '⠻', '⠋', '⠁', ' '];
+
+enum ArtStyle { dots, ascii, outline, unicode }
 
 Future<String> imageToDottedText(
   File imageFile, {
   int width = 40,
   int height = 20,
-  DotStyle style = DotStyle.ascii,
+  ArtStyle style = ArtStyle.ascii,
 }) async {
   final bytes = await imageFile.readAsBytes();
   final codec = await ui.instantiateImageCodec(
@@ -32,8 +40,11 @@ Future<String> imageToDottedText(
   if (byteData == null) return '';
   final buffer = byteData.buffer.asUint8List();
   StringBuffer sb = StringBuffer();
-  // Denser ASCII ramp for more detail
-  const asciiRamp = '@#W\$9876543210?!abc;:+=-,._ ';
+  // Prepare grayscale buffer for edge detection
+  List<List<int>> grayImg = List.generate(
+    img.height,
+    (y) => List.filled(img.width, 0),
+  );
   for (int y = 0; y < img.height; y++) {
     for (int x = 0; x < img.width; x++) {
       int i = (y * img.width + x) * 4;
@@ -41,13 +52,38 @@ Future<String> imageToDottedText(
       int g = buffer[i + 1];
       int b = buffer[i + 2];
       int a = buffer[i + 3];
-      if (a < 128) {
-        sb.write(' ');
-        continue;
-      }
-      int gray = ((r + g + b) ~/ 3);
-      if (style == DotStyle.dots) {
-        sb.write(gray < 128 ? '.' : ' ');
+      int gray = a < 128 ? 255 : ((r + g + b) ~/ 3);
+      grayImg[y][x] = gray;
+    }
+  }
+  for (int y = 0; y < img.height; y++) {
+    for (int x = 0; x < img.width; x++) {
+      int gray = grayImg[y][x];
+      if (style == ArtStyle.unicode) {
+        int idx = ((gray / 255) * (unicodeRamp.length - 1)).round();
+        sb.write(unicodeRamp[idx]);
+      } else if (style == ArtStyle.dots) {
+        sb.write(gray < 128 ? '•' : ' '); // Use medium bold dot
+      } else if (style == ArtStyle.outline) {
+        int gx = 0, gy = 0;
+        if (x > 0 && x < img.width - 1 && y > 0 && y < img.height - 1) {
+          gx =
+              grayImg[y - 1][x + 1] +
+              2 * grayImg[y][x + 1] +
+              grayImg[y + 1][x + 1] -
+              grayImg[y - 1][x - 1] -
+              2 * grayImg[y][x - 1] -
+              grayImg[y + 1][x - 1];
+          gy =
+              grayImg[y + 1][x - 1] +
+              2 * grayImg[y + 1][x] +
+              grayImg[y + 1][x + 1] -
+              grayImg[y - 1][x - 1] -
+              2 * grayImg[y - 1][x] -
+              grayImg[y - 1][x + 1];
+        }
+        int edge = ((gx.abs() + gy.abs()) ~/ 2).clamp(0, 255);
+        sb.write(edge > 80 ? '•' : ' ');
       } else {
         int idx = ((gray / 255) * (asciiRamp.length - 1)).round();
         sb.write(asciiRamp[idx]);
@@ -84,6 +120,20 @@ class DotSketchHome extends StatefulWidget {
 }
 
 class _DotSketchHomeState extends State<DotSketchHome> {
+  File? _image;
+  String _dottedText = '';
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery);
+    if (picked != null) {
+      setState(() {
+        _image = File(picked.path);
+        _dottedText = '';
+      });
+    }
+  }
+
   void _copyText() {
     if (_dottedText.isNotEmpty) {
       Clipboard.setData(ClipboardData(text: _dottedText));
@@ -93,8 +143,8 @@ class _DotSketchHomeState extends State<DotSketchHome> {
     }
   }
 
-  DotStyle _selectedStyle = DotStyle.ascii;
-  double _outputWidth = 40;
+  ArtStyle _selectedStyle = ArtStyle.dots;
+  double _outputWidth = 20;
 
   Future<void> _convertToDottedText() async {
     if (_image == null) return;
@@ -115,133 +165,314 @@ class _DotSketchHomeState extends State<DotSketchHome> {
     });
   }
 
-  File? _image;
-  String _dottedText = '';
-  final ImagePicker _picker = ImagePicker();
-
-  Future<void> _pickImage() async {
-    final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        _image = File(pickedFile.path);
-        _dottedText = '';
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: const ModernAppBar(title: 'DotSketch'),
-      body: Center(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                ModernCard(
-                  child: Column(
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _pickImage,
-                        icon: const Icon(Icons.image_outlined),
-                        label: const Text('Choose Image'),
-                      ),
-                      if (_image != null) ...[
-                        const SizedBox(height: 16),
-                        ImagePreview(image: _image!),
-                      ],
-                    ],
-                  ),
-                ),
-                if (_image != null) ...[
-                  ModernCard(
-                    child: Column(
-                      children: [
-                        ModernDropdown<DotStyle>(
-                          value: _selectedStyle,
-                          label: 'Style',
-                          items: const [
-                            DropdownMenuItem(
-                              value: DotStyle.dots,
-                              child: Text('Dots Only'),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final isWide = constraints.maxWidth > 700;
+          return Center(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: isWide
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 8.0),
+                                  child: Text(
+                                    '1. Select an Image',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ),
+                                ModernCard(
+                                  child: Column(
+                                    children: [
+                                      ElevatedButton.icon(
+                                        onPressed: _pickImage,
+                                        icon: const Icon(Icons.image_outlined),
+                                        label: const Text('Choose Image'),
+                                      ),
+                                      if (_image != null) ...[
+                                        const SizedBox(height: 16),
+                                        ImagePreview(image: _image!),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                if (_image != null) ...[
+                                  const Divider(height: 32),
+                                  const Padding(
+                                    padding: EdgeInsets.only(bottom: 8.0),
+                                    child: Text(
+                                      '2. Customize Output',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ),
+                                  ModernCard(
+                                    child: Column(
+                                      children: [
+                                        ModernDropdown<ArtStyle>(
+                                          value: _selectedStyle,
+                                          label: 'Style',
+                                          items: const [
+                                            DropdownMenuItem(
+                                              value: ArtStyle.dots,
+                                              child: Text('Dots Only'),
+                                            ),
+                                            DropdownMenuItem(
+                                              value: ArtStyle.ascii,
+                                              child: Text('ASCII Art'),
+                                            ),
+                                            DropdownMenuItem(
+                                              value: ArtStyle.outline,
+                                              child: Text('Outline Only'),
+                                            ),
+                                            DropdownMenuItem(
+                                              value: ArtStyle.unicode,
+                                              child: Text('Unicode Art'),
+                                            ),
+                                          ],
+                                          onChanged: (v) {
+                                            if (v != null)
+                                              setState(
+                                                () => _selectedStyle = v,
+                                              );
+                                          },
+                                        ),
+                                        const SizedBox(height: 12),
+                                        ModernSlider(
+                                          value: _outputWidth,
+                                          min: 20,
+                                          max: 100,
+                                          divisions: 8,
+                                          label: 'Width',
+                                          onChanged: (v) =>
+                                              setState(() => _outputWidth = v),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        ElevatedButton.icon(
+                                          onPressed: _convertToDottedText,
+                                          icon: const Icon(Icons.auto_awesome),
+                                          label: const Text(
+                                            'Convert to Dotted Text',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                            DropdownMenuItem(
-                              value: DotStyle.ascii,
-                              child: Text('ASCII Art'),
+                          ),
+                          const SizedBox(width: 32),
+                          Expanded(
+                            flex: 3,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 8.0),
+                                  child: Text(
+                                    '3. Result',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ),
+                                ModernCard(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey[100],
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                        ),
+                                        padding: const EdgeInsets.all(12),
+                                        child: SelectableText(
+                                          _dottedText.isEmpty
+                                              ? 'Dotted text will appear here.'
+                                              : _dottedText,
+                                          style: const TextStyle(
+                                            fontFamily: 'monospace',
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      ElevatedButton.icon(
+                                        onPressed: _dottedText.isNotEmpty
+                                            ? _copyText
+                                            : null,
+                                        icon: const Icon(Icons.copy),
+                                        label: const Text('Copy Dotted Text'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
-                            DropdownMenuItem(
-                              value: DotStyle.outline,
-                              child: Text('Outline Only'),
+                          ),
+                        ],
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              '1. Select an Image',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                          ModernCard(
+                            child: Column(
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: _pickImage,
+                                  icon: const Icon(Icons.image_outlined),
+                                  label: const Text('Choose Image'),
+                                ),
+                                if (_image != null) ...[
+                                  const SizedBox(height: 16),
+                                  ImagePreview(image: _image!),
+                                ],
+                              ],
+                            ),
+                          ),
+                          if (_image != null) ...[
+                            const Divider(height: 32),
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 8.0),
+                              child: Text(
+                                '2. Customize Output',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ),
+                            ModernCard(
+                              child: Column(
+                                children: [
+                                  ModernDropdown<ArtStyle>(
+                                    value: _selectedStyle,
+                                    label: 'Style',
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: ArtStyle.dots,
+                                        child: Text('Dots Only'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: ArtStyle.ascii,
+                                        child: Text('ASCII Art'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: ArtStyle.outline,
+                                        child: Text('Outline Only'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: ArtStyle.unicode,
+                                        child: Text('Unicode Art'),
+                                      ),
+                                    ],
+                                    onChanged: (v) {
+                                      if (v != null)
+                                        setState(() => _selectedStyle = v);
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ModernSlider(
+                                    value: _outputWidth,
+                                    min: 20,
+                                    max: 100,
+                                    divisions: 8,
+                                    label: 'Width',
+                                    onChanged: (v) =>
+                                        setState(() => _outputWidth = v),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  ElevatedButton.icon(
+                                    onPressed: _convertToDottedText,
+                                    icon: const Icon(Icons.auto_awesome),
+                                    label: const Text('Convert to Dotted Text'),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _selectedStyle = v);
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        ModernSlider(
-                          value: _outputWidth,
-                          min: 20,
-                          max: 100,
-                          divisions: 8,
-                          label: 'Width',
-                          onChanged: (v) => setState(() => _outputWidth = v),
-                        ),
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: _convertToDottedText,
-                          icon: const Icon(Icons.auto_awesome),
-                          label: const Text('Convert to Dotted Text'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                ModernCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text(
-                        'Output',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.all(12),
-                        child: SelectableText(
-                          _dottedText.isEmpty
-                              ? 'Dotted text will appear here.'
-                              : _dottedText,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 13,
+                          const Divider(height: 32),
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 8.0),
+                            child: Text(
+                              '3. Result',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
                           ),
-                        ),
+                          ModernCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[100],
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  padding: const EdgeInsets.all(12),
+                                  child: SelectableText(
+                                    _dottedText.isEmpty
+                                        ? 'Dotted text will appear here.'
+                                        : _dottedText,
+                                    style: const TextStyle(
+                                      fontFamily: 'monospace',
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                ElevatedButton.icon(
+                                  onPressed: _dottedText.isNotEmpty
+                                      ? _copyText
+                                      : null,
+                                  icon: const Icon(Icons.copy),
+                                  label: const Text('Copy Dotted Text'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      ElevatedButton.icon(
-                        onPressed: _dottedText.isNotEmpty ? _copyText : null,
-                        icon: const Icon(Icons.copy),
-                        label: const Text('Copy Dotted Text'),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
+    // ...existing code...
   }
 }
