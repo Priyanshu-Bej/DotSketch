@@ -9,11 +9,11 @@ class ModernAppBar extends StatelessWidget implements PreferredSizeWidget {
     return AppBar(
       leading: Padding(
         padding: const EdgeInsets.only(left: 12, right: 4),
-        child: Image.asset(
-          'assets/images/app_logo.jpg',
-          fit: BoxFit.contain,
-          height: 32,
-          width: 32,
+        child: CircleAvatar(
+          radius: 20,
+
+          backgroundImage: AssetImage('assets/images/app_logo.jpg'),
+          backgroundColor: Colors.transparent,
         ),
       ),
       title: Text(title),
@@ -30,10 +30,11 @@ class ModernAppBar extends StatelessWidget implements PreferredSizeWidget {
               applicationName: 'DotSketch',
               applicationVersion: '1.0.0',
               applicationLegalese: '© 2025 Priyanshu-Bej',
-              applicationIcon: const Icon(
-                Icons.palette,
-                size: 48,
-                color: Colors.deepPurple,
+              applicationIcon: CircleAvatar(
+                radius: 20,
+
+                backgroundImage: AssetImage('assets/images/app_logo.jpg'),
+                backgroundColor: Colors.transparent,
               ),
             );
           },
